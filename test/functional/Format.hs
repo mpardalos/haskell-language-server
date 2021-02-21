@@ -14,9 +14,7 @@ import Test.Tasty.Golden
 import Test.Tasty.HUnit
 import Control.Lens ((^.))
 
-#if AGPL
 import qualified Data.Text.IO as T
-#endif
 
 tests :: TestTree
 tests = testGroup "format document" [
@@ -31,9 +29,6 @@ tests = testGroup "format document" [
     , rangeTests
     , providerTests
     , stylishHaskellTests
-#if AGPL
-    , brittanyTests
-#endif
     , ormoluTests
     , fourmoluTests
     ]
@@ -110,37 +105,6 @@ stylishHaskellTests = testGroup "stylish-haskell" [
       BS.fromStrict . T.encodeUtf8 <$> documentContents doc
   ]
 
-#if AGPL
-brittanyTests :: TestTree
-brittanyTests = testGroup "brittany" [
-    goldenVsStringDiff "formats a document with LF endings" goldenGitDiff "test/testdata/format/BrittanyLF.formatted_document.hs" $ runSession hlsCommand fullCaps "test/testdata/format" $ do
-        sendNotification SWorkspaceDidChangeConfiguration (DidChangeConfigurationParams (formatLspConfig "brittany"))
-        doc <- openDoc "BrittanyLF.hs" "haskell"
-        formatDoc doc (FormattingOptions 4 True Nothing Nothing Nothing)
-        BS.fromStrict . T.encodeUtf8 <$> documentContents doc
-
-    , goldenVsStringDiff "formats a document with CRLF endings" goldenGitDiff "test/testdata/format/BrittanyCRLF.formatted_document.hs" $ runSession hlsCommand fullCaps "test/testdata/format" $ do
-        sendNotification SWorkspaceDidChangeConfiguration (DidChangeConfigurationParams (formatLspConfig "brittany"))
-        doc <- openDoc "BrittanyCRLF.hs" "haskell"
-        formatDoc doc (FormattingOptions 4 True Nothing Nothing Nothing)
-        BS.fromStrict . T.encodeUtf8 <$> documentContents doc
-
-    , goldenVsStringDiff "formats a range with LF endings" goldenGitDiff "test/testdata/format/BrittanyLF.formatted_range.hs" $ runSession hlsCommand fullCaps "test/testdata/format" $ do
-        sendNotification SWorkspaceDidChangeConfiguration (DidChangeConfigurationParams (formatLspConfig "brittany"))
-        doc <- openDoc "BrittanyLF.hs" "haskell"
-        let range = Range (Position 1 0) (Position 2 22)
-        formatRange doc (FormattingOptions 4 True Nothing Nothing Nothing) range
-        BS.fromStrict . T.encodeUtf8 <$> documentContents doc
-
-    , goldenVsStringDiff "formats a range with CRLF endings" goldenGitDiff "test/testdata/format/BrittanyCRLF.formatted_range.hs" $ runSession hlsCommand fullCaps "test/testdata/format" $ do
-        sendNotification SWorkspaceDidChangeConfiguration (DidChangeConfigurationParams (formatLspConfig "brittany"))
-        doc <- openDoc "BrittanyCRLF.hs" "haskell"
-        let range = Range (Position 1 0) (Position 2 22)
-        formatRange doc (FormattingOptions 4 True Nothing Nothing Nothing) range
-        BS.fromStrict . T.encodeUtf8 <$> documentContents doc
-    ]
-#endif
-
 ormoluTests :: TestTree
 ormoluTests = testGroup "ormolu"
   [ goldenVsStringDiff "formats correctly" goldenGitDiff "test/testdata/format/Format.ormolu.formatted.hs" $ runSession hlsCommand fullCaps "test/testdata/format" $ do
@@ -172,11 +136,9 @@ fourmoluTests = testGroup "fourmolu"
 formatLspConfig :: Value -> Value
 formatLspConfig provider = object [ "haskell" .= object ["formattingProvider" .= (provider :: Value)] ]
 
-#if AGPL
 -- | The same as 'formatLspConfig' but using the legacy section name
 formatLspConfigOld :: Value -> Value
 formatLspConfigOld provider = object [ "languageServerHaskell" .= object ["formattingProvider" .= (provider :: Value)] ]
-#endif
 
 formatConfig :: Value -> SessionConfig
 formatConfig provider = defaultConfig { lspConfig = Just (formatLspConfig provider) }
