@@ -15,7 +15,7 @@ module Development.IDE.Core.FileStore(
     makeVFSHandle,
     makeLSPVFSHandle,
     isFileOfInterestRule
-    ,modifyFileStore) where
+    ,modifyFileStore,modifyInterfaceStore) where
 
 import           Control.Concurrent.Extra
 import           Control.Concurrent.STM                       (atomically)
@@ -67,6 +67,7 @@ import           Language.LSP.Types                           (FileChangeType (F
                                                                FileEvent (FileEvent),
                                                                uriToFilePath)
 import           Language.LSP.VFS
+import           System.FilePath
 
 makeVFSHandle :: IO VFSHandle
 makeVFSHandle = do
@@ -108,7 +109,7 @@ getModificationTimeRule vfs isWatched =
                 pure (Just $ BS.pack $ show ver, ([], Just $ VFSVersion ver))
             Nothing -> do
                 isWF <- isWatched file
-                unless isWF alwaysRerun
+                unless (isWF || isInterface file) alwaysRerun
                 liftIO $ fmap wrap (getModTime file')
                     `catch` \(e :: IOException) -> do
                         let err | isDoesNotExistError e = "File does not exist: " ++ file'
@@ -118,6 +119,18 @@ getModificationTimeRule vfs isWatched =
                             then return (Nothing, ([], Nothing))
                             else return (Nothing, ([diag], Nothing))
 
+-- | Interface files cannot be watched, since they live outside the workspace.
+--   But interface files are private, in that only HLS writes them.
+--   So we implement watching ourselves, and bypass the need for alwaysRerun.
+isInterface :: NormalizedFilePath -> Bool
+isInterface f = takeExtension (fromNormalizedFilePath f) `elem` ["hi", "hie"]
+
+-- | Reset the GetModificationTime state of interface files
+modifyInterfaceStore :: ShakeExtras -> NormalizedFilePath -> IO ()
+modifyInterfaceStore state f = do
+    deleteValue state (GetModificationTime_ False) f
+    deleteValue state (GetModificationTime_ True) f
+
 -- | Reset the GetModificationTime state of watched files
 modifyFileStore :: IdeState -> [FileEvent] -> IO ()
 modifyFileStore state changes = mask $ \_ ->
@@ -126,8 +139,8 @@ modifyFileStore state changes = mask $ \_ ->
             FcChanged
               | Just f <- uriToFilePath uri
               -> do
-                  deleteValue state (GetModificationTime_ True) (toNormalizedFilePath' f)
-                  deleteValue state (GetModificationTime_ False) (toNormalizedFilePath' f)
+                  deleteValue (shakeExtras state) (GetModificationTime_ True) (toNormalizedFilePath' f)
+                  deleteValue (shakeExtras state) (GetModificationTime_ False) (toNormalizedFilePath' f)
             _ -> pure ()
 
 -- Dir.getModificationTime is surprisingly slow since it performs

@@ -86,7 +86,7 @@ import           Data.Tuple.Extra
 import           Development.IDE.Core.Compile
 import           Development.IDE.Core.FileExists
 import           Development.IDE.Core.FileStore               (getFileContents,
-                                                               modificationTime)
+                                                               modificationTime, modifyInterfaceStore)
 import           Development.IDE.Core.OfInterest
 import           Development.IDE.Core.PositionMapping
 import           Development.IDE.Core.RuleTypes
@@ -616,7 +616,7 @@ getHieAstRuleDefinition f hsc tmr = do
           source <- getSourceFileSource f
           let exports = tcg_exports $ tmrTypechecked tmr
               msum = tmrModSummary tmr
-          liftIO $ writeAndIndexHieFile hsc se msum f exports asts source
+          writeAndIndexHieFileAction hsc se msum f exports asts source
     _ -> pure []
 
   let refmap = generateReferencesMap . getAsts <$> masts
@@ -941,7 +941,7 @@ getModIfaceRule = defineEarlyCutoff $ \GetModIface f -> do
       hiDiags <- case hiFile of
         Just hiFile
           | OnDisk <- status
-          , not (tmrDeferedError tmr) -> liftIO $ writeHiFile hsc hiFile
+          , not (tmrDeferedError tmr) -> writeHiFileAction hsc hiFile
         _ -> pure []
       return (fp, (diags++hiDiags, hiFile))
     NotFOI -> do
@@ -1005,12 +1005,12 @@ regenerateHiFile sess f ms compNeeded = do
                     (gDiags, masts) <- liftIO $ generateHieAsts hsc tmr
                     source <- getSourceFileSource f
                     wDiags <- forM masts $ \asts ->
-                      liftIO $ writeAndIndexHieFile hsc se (tmrModSummary tmr) f (tcg_exports $ tmrTypechecked tmr) asts source
+                      writeAndIndexHieFileAction hsc se (tmrModSummary tmr) f (tcg_exports $ tmrTypechecked tmr) asts source
 
                     -- We don't write the `.hi` file if there are defered errors, since we won't get
                     -- accurate diagnostics next time if we do
                     hiDiags <- if not $ tmrDeferedError tmr
-                               then liftIO $ writeHiFile hsc hiFile
+                               then writeHiFileAction hsc hiFile
                                else pure []
 
                     pure (hiDiags <> gDiags <> concat wDiags)
@@ -1107,6 +1107,21 @@ needsCompilationRule = defineEarlyCutoff $ \NeedsCompilation file -> do
 -- | Tracks which linkables are current, so we don't need to unload them
 newtype CompiledLinkables = CompiledLinkables { getCompiledLinkables :: Var (ModuleEnv UTCTime) }
 instance IsIdeGlobal CompiledLinkables
+
+writeHiFileAction :: HscEnv -> HiFileResult -> Action [FileDiagnostic]
+writeHiFileAction hsc hiFile = do
+    extras <- getShakeExtras
+    let targetPath = ml_hi_file $ ms_location $ hirModSummary hiFile
+    liftIO $ do
+        modifyInterfaceStore extras $ toNormalizedFilePath' targetPath
+        writeHiFile hsc hiFile
+
+writeAndIndexHieFileAction :: HscEnv -> ShakeExtras -> ModSummary -> NormalizedFilePath -> [AvailInfo] -> HieASTs Type -> BS.ByteString -> Action [FileDiagnostic]
+writeAndIndexHieFileAction hsc se msum f exports asts source = do
+    extras <- getShakeExtras
+    liftIO $ do
+      modifyInterfaceStore extras f
+      writeAndIndexHieFile hsc se msum f exports asts source
 
 -- | A rule that wires per-file rules together
 mainRule :: Rules ()
